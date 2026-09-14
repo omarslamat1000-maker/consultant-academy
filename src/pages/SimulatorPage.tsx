@@ -13,7 +13,7 @@ type Phase = "setup" | "generating" | "case" | "evaluating" | "result";
 const REVEAL_STEPS = ["السياق", "المشكلة والقرار المطلوب", "الأهداف والقيود", "البيانات المتاحة"];
 
 export function SimulatorPage() {
-  const { profile, isDemo } = useAuth();
+  const { profile, isDemo, role } = useAuth();
   const [params] = useSearchParams();
   const [phase, setPhase] = useState<Phase>("setup");
   const [level, setLevel] = useState<Level>((params.get("level") as Level) || profile?.level || "beginner");
@@ -59,7 +59,7 @@ export function SimulatorPage() {
     return () => clearInterval(t);
   }, [phase]);
 
-  const maxLevelIdx = Math.min(LEVELS.length - 1, LEVEL_ORDER[profile?.level ?? "beginner"] + 1);
+  const maxLevelIdx = role === "admin" ? LEVELS.length - 1 : Math.min(LEVELS.length - 1, LEVEL_ORDER[profile?.level ?? "beginner"] + 1);
 
   async function start(repeatId?: string) {
     setError(null);
@@ -170,7 +170,7 @@ export function SimulatorPage() {
         {error && <Alert tone="error">{error}</Alert>}
         <Card>
           <div className="grid grid-2">
-            <Field label="المستوى" htmlFor="lvl" hint="يمكنك اختيار مستواك أو الأعلى منه بدرجة واحدة كتحدٍ">
+            <Field label="المستوى" htmlFor="lvl" hint={role === "admin" ? "بصفتك مسؤولًا يمكنك اختيار أي مستوى" : "يمكنك اختيار مستواك أو الأعلى منه بدرجة واحدة كتحدٍ"}>
               <select id="lvl" value={level} onChange={(e) => setLevel(e.target.value as Level)}>
                 {LEVELS.filter((l) => LEVEL_ORDER[l] <= maxLevelIdx).map((l) => (
                   <option key={l} value={l}>

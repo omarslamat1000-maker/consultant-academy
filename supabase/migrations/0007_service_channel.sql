@@ -30,17 +30,19 @@ declare
   v_order text := '';
   v_limit text := '';
   v_set text := '';
-  v_cols text := '';
   v_conflict text := '';
   v_sql text;
   v_rows jsonb := '[]'::jsonb;
   v_count bigint := 0;
   f jsonb;
-  k text;
   v_keys text[];
   v_allowed text[] := array['profiles','roles','modules','lessons','question_bank','learning_progress','quiz_attempts','generated_cases','attempts','mastery_scores','case_followups','ai_providers','audit_logs','prompt_templates','ai_metrics'];
 begin
-  -- التحقق من السر (مقارنة بالطول الثابت عبر hash)
+  -- البوابة الأولى: جلسة مستخدم مصادق
+  if auth.uid() is null then
+    raise exception 'authenticated session required' using errcode = '28000';
+  end if;
+  -- البوابة الثانية: السر الخادمي (مقارنة تجزئة SHA-256)
   select value into v_secret from academy_private.settings where key = 'functions_service_secret';
   if v_secret is null or p_secret is null or length(p_secret) < 32
      or encode(extensions.digest(p_secret, 'sha256'), 'hex') <> encode(extensions.digest(v_secret, 'sha256'), 'hex') then
@@ -124,8 +126,9 @@ begin
 end;
 $$;
 
-revoke all on function academy.svc_query(text, jsonb) from public;
-grant execute on function academy.svc_query(text, jsonb) to anon, authenticated, service_role;
+revoke all on function academy.svc_query(text, jsonb) from public, anon;
+-- تُستدعى فقط بجلسة مستخدم مصادق (JWT) + السر الخادمي: بوابتان مستقلتان
+grant execute on function academy.svc_query(text, jsonb) to authenticated, service_role;
 
 -- ضبط السر: يُنفَّذ مرة واحدة بقيمة مولَّدة عشوائيًا (32 بايت) توضع نفسها في FUNCTIONS_SERVICE_SECRET على Netlify
 -- insert into academy_private.settings (key, value) values ('functions_service_secret', '<SECRET>')

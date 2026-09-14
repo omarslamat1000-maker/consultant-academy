@@ -4,6 +4,7 @@
 // يستخدم المفتاح القابل للنشر فقط؛ السر لا يغادر الخادم ولا يُسجَّل
 // ============================================================
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { getRequestToken } from "./request-context.ts";
 
 type Row = Record<string, any>;
 type Filter = { col: string; op: "eq" | "in" | "gte" | "lte" | "is" | "not_is"; value?: unknown };
@@ -137,7 +138,11 @@ export function createServiceClient(opts: ServiceClientOptions) {
   }) as SupabaseClient<any, "academy", any>;
 
   async function call(q: Record<string, unknown>): Promise<any> {
-    const { data, error } = await sb.rpc("svc_query", { p_secret: opts.secret, p_q: q });
+    // البوابة الأولى: جلسة مستخدم مصادق (الدالة ممنوحة لدور authenticated فقط)؛ البوابة الثانية: السر الخادمي
+    const token = getRequestToken();
+    let builder = sb.rpc("svc_query", { p_secret: opts.secret, p_q: q });
+    if (token) builder = builder.setHeader("Authorization", `Bearer ${token}`);
+    const { data, error } = await builder;
     if (error) throw new Error(error.message);
     return data ?? {};
   }

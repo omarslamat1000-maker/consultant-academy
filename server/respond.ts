@@ -2,6 +2,7 @@
 // أدوات الاستجابة والأخطاء الآمنة للوظائف الخادمية
 // ============================================================
 import { redactSecrets } from "./crypto.ts";
+import { setRequestToken } from "./request-context.ts";
 
 export class ApiError extends Error {
   status: number;
@@ -87,6 +88,8 @@ export function withHandler(fn: (req: Request) => Promise<Response>): (req: Requ
   return async (req: Request) => {
     const cors = corsHeaders(req);
     if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
+    const m = /^Bearer\s+(.+)$/i.exec(req.headers.get("authorization") ?? "");
+    setRequestToken(m ? m[1].trim() : null);
     try {
       const res = await fn(req);
       if (Object.keys(cors).length === 0) return res;

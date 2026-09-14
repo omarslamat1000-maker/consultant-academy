@@ -104,7 +104,8 @@ export async function generateCase(admin: AdminClient, user: AuthedUser, req: Ge
     return { case: toPublicView(data as CaseRecord), attempts: 0, duplicates_rejected: 0, ai: data.source === "ai", message: "أُعيدت حالة سابقة بناءً على طلبك الصريح." };
   }
 
-  const level = clampRequestedLevel(user.level, req.level);
+  // المسؤول يختار أي مستوى (للمراجعة والاختبار)؛ المتدرب حتى مستواه + درجة واحدة
+  const level = user.role === "admin" ? (req.level ?? user.level) : clampRequestedLevel(user.level, req.level);
   const recent = await fetchRecentCases(admin, user.id);
   const sector = pickSector(user, req.sector, preferredSector, recent);
   const skill = await pickSkill(admin, user.id, req.skill);
