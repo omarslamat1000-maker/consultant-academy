@@ -53,3 +53,11 @@ where user_id = (select id from auth.users where email = 'admin@example.com');
 - `question_bank` (مع الإجابات) للمسؤول فقط؛ المتدرب يقرأ `question_bank_public` والتصحيح خادمي.
 - تغيير `profiles.level` محمي بمشغّل: لا يغيّره إلا الخادم أو المسؤول.
 - الدوال `SECURITY DEFINER` محدودة: `is_admin()` (بلا معاملات، تعتمد `auth.uid()`)، `handle_new_user()`، `consume_rate_limit()` (service_role فقط)، `protect_profile_level()`.
+
+## 7. بديل اختياري عن `service_role`: القناة الخدمية (الترحيل 0007)
+إذا تعذر وضع مفتاح `service_role` في الاستضافة، يمكن تشغيل الوظائف الخادمية بالمفتاح القابل للنشر فقط عبر دالة `academy.svc_query` (SECURITY DEFINER) المحمية بسر خادمي:
+1. نفّذ `supabase/migrations/0007_service_channel.sql` من SQL Editor (يُنشئ مخططًا خاصًا `academy_private` غير مكشوف + الدالة).
+2. ولّد سرًا: `node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"` وأدخله في الجدول الخاص:
+   `insert into academy_private.settings (key, value) values ('functions_service_secret', '<SECRET>') on conflict (key) do update set value = excluded.value;`
+3. اضبط المتغير نفسه `FUNCTIONS_SERVICE_SECRET` (وكذلك `VITE_SUPABASE_ANON_KEY`) في Netlify. عند غياب `SUPABASE_SERVICE_ROLE_KEY` تستخدم الوظائف هذه القناة تلقائيًا.
+> ملاحظة أمنية: الدالة تنفذ عمليات مقيّدة على جداول `academy` فقط، بعد التحقق من السر بمقارنة تجزئة SHA-256؛ وهي مكافئة من حيث الصلاحية لمفتاح `service_role` محدود بالمخطط، لذا عامل السر بالسرية نفسها.
