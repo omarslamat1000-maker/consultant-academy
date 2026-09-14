@@ -30,6 +30,7 @@ declare
   v_order text := '';
   v_limit text := '';
   v_set text := '';
+  v_cols text := '';
   v_conflict text := '';
   v_sql text;
   v_rows jsonb := '[]'::jsonb;
@@ -90,6 +91,12 @@ begin
     v_limit := format(' limit %s', (p_q ->> 'limit')::int);
   end if;
 
+  if v_op in ('insert', 'upsert') then
+    -- قائمة الأعمدة من مفاتيح الصف الأول حتى تُطبَّق القيم الافتراضية (id, created_at…) على الأعمدة غير المرسلة
+    select array_agg(key) into v_keys from jsonb_object_keys((p_q -> 'rows') -> 0) as key;
+    select string_agg(format('%I', k2), ', ') into v_cols from unnest(v_keys) k2;
+  end if;
+
   if v_op = 'select' then
     v_sql := format('select coalesce(jsonb_agg(to_jsonb(t)), ''[]''::jsonb) from (select * from %s t%s%s%s) t', v_rel, v_where, v_order, v_limit);
     execute v_sql into v_rows;
@@ -99,14 +106,13 @@ begin
     execute v_sql into v_count;
     return jsonb_build_object('count', v_count);
   elsif v_op = 'insert' then
-    v_sql := format('with ins as (insert into %s select * from jsonb_populate_recordset(null::%s, %L::jsonb) returning *) select coalesce(jsonb_agg(to_jsonb(ins)), ''[]''::jsonb) from ins', v_rel, v_rel, (p_q -> 'rows')::text);
+    v_sql := format('with ins as (insert into %s (%s) select %s from jsonb_populate_recordset(null::%s, %L::jsonb) returning *) select coalesce(jsonb_agg(to_jsonb(ins)), ''[]''::jsonb) from ins', v_rel, v_cols, v_cols, v_rel, (p_q -> 'rows')::text);
     execute v_sql into v_rows;
     return jsonb_build_object('rows', v_rows);
   elsif v_op = 'upsert' then
-    select array_agg(key) into v_keys from jsonb_object_keys((p_q -> 'rows') -> 0) as key;
     select string_agg(format('%I = excluded.%I', k2, k2), ', ') into v_set from unnest(v_keys) k2;
     select string_agg(format('%I', c), ', ') into v_conflict from jsonb_array_elements_text(p_q -> 'conflict') c;
-    v_sql := format('with ins as (insert into %s select * from jsonb_populate_recordset(null::%s, %L::jsonb) on conflict (%s) do update set %s returning *) select coalesce(jsonb_agg(to_jsonb(ins)), ''[]''::jsonb) from ins', v_rel, v_rel, (p_q -> 'rows')::text, v_conflict, v_set);
+    v_sql := format('with ins as (insert into %s (%s) select %s from jsonb_populate_recordset(null::%s, %L::jsonb) on conflict (%s) do update set %s returning *) select coalesce(jsonb_agg(to_jsonb(ins)), ''[]''::jsonb) from ins', v_rel, v_cols, v_cols, v_rel, (p_q -> 'rows')::text, v_conflict, v_set);
     execute v_sql into v_rows;
     return jsonb_build_object('rows', v_rows);
   elsif v_op = 'update' then
