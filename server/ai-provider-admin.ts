@@ -105,17 +105,25 @@ export async function testProvider(admin: AdminClient, actor: AuthedUser, body: 
   let maxOutputTokens = 8192;
 
   if (!apiKey) {
-    if (!isEncryptionConfigured()) throw Errors.encryptionNotConfigured();
-    const { data } = await admin.from("ai_providers").select("*").eq("is_active", true).order("updated_at", { ascending: false }).limit(1).maybeSingle();
-    if (!data) throw Errors.notFound("مزود نشط");
-    providerId = data.id;
-    model = req.model ?? data.model;
-    temperature = Number(data.temperature);
-    maxOutputTokens = data.max_output_tokens;
-    try {
-      apiKey = decryptSecret({ encrypted_secret: data.encrypted_secret, secret_iv: data.secret_iv, auth_tag: data.auth_tag });
-    } catch {
-      throw Errors.aiFailed("تعذر فك تشفير المفتاح المحفوظ (ربما تغيّر CONFIG_ENCRYPTION_KEY). أعد إدخال المفتاح.");
+    const { data } = isEncryptionConfigured()
+      ? await admin.from("ai_providers").select("*").eq("is_active", true).order("updated_at", { ascending: false }).limit(1).maybeSingle()
+      : { data: null };
+    if (data) {
+      providerId = data.id;
+      model = req.model ?? data.model;
+      temperature = Number(data.temperature);
+      maxOutputTokens = data.max_output_tokens;
+      try {
+        apiKey = decryptSecret({ encrypted_secret: data.encrypted_secret, secret_iv: data.secret_iv, auth_tag: data.auth_tag });
+      } catch {
+        throw Errors.aiFailed("تعذر فك تشفير المفتاح المحفوظ (ربما تغيّر CONFIG_ENCRYPTION_KEY). أعد إدخال المفتاح.");
+      }
+    } else {
+      // لا مزود محفوظ: اختبار البديل من متغير البيئة GEMINI_API_KEY إن وُجد
+      const envKey = process.env.GEMINI_API_KEY?.trim();
+      if (!envKey) throw Errors.notFound("مزود نشط");
+      apiKey = envKey;
+      model = req.model ?? process.env.GEMINI_MODEL?.trim() ?? DEFAULT_GEMINI_MODEL;
     }
   }
   const provider = createProvider({ provider: "gemini", model, apiKey, temperature, maxOutputTokens });

@@ -2,7 +2,7 @@
 // استدعاء مهيكل مع تحقق JSON: محاولة إصلاح واحدة، ثم إعادة توليد واحدة، ثم فشل صريح
 // ============================================================
 import type { ZodType } from "zod";
-import { Errors } from "./respond.ts";
+import { ApiError, Errors } from "./respond.ts";
 import { ProviderError, type AIProvider, type GeminiSchema } from "./providers/types.ts";
 
 export interface StructuredCallResult<T> {
@@ -93,7 +93,8 @@ export async function callStructured<T>(
 
 export function toApiError(err: unknown) {
   if (err instanceof ProviderError) {
-    if (err.code === "invalid_key" || err.code === "model_not_found") return Errors.aiNotConfigured();
+    if (err.code === "invalid_key") return new ApiError(503, "ai_invalid_key", "مفتاح Gemini مرفوض أو غير صالح. راجع المفتاح في صفحة «مفتاح API» أو متغير GEMINI_API_KEY.");
+    if (err.code === "model_not_found") return new ApiError(503, "ai_model_not_found", "النموذج المحدد غير متاح لهذا المفتاح. اختر gemini-2.5-flash من صفحة «مفتاح API».");
     return Errors.aiFailed(err.message);
   }
   return err;
