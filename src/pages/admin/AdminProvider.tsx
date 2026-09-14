@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { Alert, Badge, Card, Field, Loading, formatDate } from "../../components/ui.tsx";
 import { ApiClientError, errorMessage } from "../../lib/api.ts";
 import { adminApi } from "../../lib/admin-api.ts";
+import { NETLIFY_SITE_NAME, SUPABASE_PROJECT_REF } from "../../lib/config.ts";
 
 const MODELS = ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.5-flash-lite", "gemini-2.0-flash"];
 
@@ -135,6 +136,47 @@ export function AdminProvider() {
           إعادة الفحص
         </button>
       </Card>
+
+      {functionsUp && !dbUp && (
+        <Card title="الخطوة المطلوبة الآن: ربط الوظائف بقاعدة البيانات">
+          <p>الوظائف الخادمية تعمل لكنها تحتاج مفتاح <b>service_role</b> السري من Supabase لتصحيح الاختبارات وتوليد الحالات وحفظ مفاتيح الذكاء. هذا المفتاح يُضاف مرة واحدة من لوحة الاستضافة ولا يُدخل أبدًا في هذه الصفحة.</p>
+          <ol>
+            <li>
+              انسخ مفتاح <code>service_role</code> من{" "}
+              {SUPABASE_PROJECT_REF ? (
+                <a href={`https://supabase.com/dashboard/project/${SUPABASE_PROJECT_REF}/settings/api-keys`} target="_blank" rel="noreferrer">
+                  Supabase → Settings → API Keys
+                </a>
+              ) : (
+                <span>Supabase → Settings → API Keys</span>
+              )}
+              .
+            </li>
+            <li>
+              أضف متغيرًا باسم <code>SUPABASE_SERVICE_ROLE_KEY</code> في{" "}
+              {NETLIFY_SITE_NAME ? (
+                <a href={`https://app.netlify.com/projects/${NETLIFY_SITE_NAME}/configuration/env`} target="_blank" rel="noreferrer">
+                  Netlify → Environment variables
+                </a>
+              ) : (
+                <span>Netlify → Site configuration → Environment variables</span>
+              )}{" "}
+              (فعّل خيار Secret).
+            </li>
+            <li>
+              أعد النشر من{" "}
+              {NETLIFY_SITE_NAME ? (
+                <a href={`https://app.netlify.com/projects/${NETLIFY_SITE_NAME}/deploys`} target="_blank" rel="noreferrer">
+                  Netlify → Deploys → Trigger deploy
+                </a>
+              ) : (
+                <span>Netlify → Deploys → Trigger deploy</span>
+              )}
+              ، ثم عد هنا واضغط «إعادة الفحص».
+            </li>
+          </ol>
+        </Card>
+      )}
 
       <Alert tone="warn">
         <b>تحذير:</b> لا تشارك مفتاح API مع أي أحد. يُرسل المفتاح مرة واحدة عبر HTTPS إلى الخادم، ويُشفَّر بـ AES-256-GCM قبل التخزين، ولا يُعاد إلى المتصفح أبدًا (تظهر آخر 4 أحرف فقط).
