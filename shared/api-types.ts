@@ -2,7 +2,9 @@
 // أنواع استجابات API المشتركة بين الخادم والواجهة
 // ============================================================
 import type { QuizResult } from "./quiz-grader.ts";
-import type { CasePublicView, EvaluationResult, Level, LevelProgressReport, NextRecommendation, SkillKey, WeeklyPlanItem } from "./types.ts";
+import type { CasePublicView, EvaluationResult, Level, LevelProgressReport, NextRecommendation, QuizQuestion, ReviewCardRecord, SkillKey, WeeklyPlanItem } from "./types.ts";
+import type { GradedAnswer } from "./quiz-grader.ts";
+export type { PeerComparison, PeerSkillComparison } from "./peers.ts";
 
 export interface GenerateOutcome {
   case: CasePublicView;
@@ -39,6 +41,30 @@ export interface QuizOutcome {
   completed: boolean;
   passed: boolean;
   mastery: { skill: SkillKey; score: number; evidence_count: number } | null;
+  /** عدد بطاقات المراجعة المتباعدة التي أُنشئت/أُعيدت جدولتها من الأخطاء */
+  review_cards_created?: number;
+}
+
+export interface ReviewCardView {
+  card: ReviewCardRecord;
+  /** السؤال بلا إجابة صحيحة (تُعاد بعد التصحيح فقط) */
+  question: QuizQuestion;
+  module_id: string | null;
+  module_title: string;
+}
+
+export interface ReviewDueOutcome {
+  due: ReviewCardView[];
+  total_cards: number;
+  due_count: number;
+  mastered_count: number;
+}
+
+export interface ReviewGradeOutcome {
+  graded: GradedAnswer;
+  correct_answer: unknown;
+  explanation: string;
+  card: ReviewCardRecord;
 }
 
 export interface RecommendationBundle {

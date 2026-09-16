@@ -1,7 +1,7 @@
 // ============================================================
 // مخزن الوضع التجريبي — localStorage (بيانات تجريبية محلية فقط)
 // ============================================================
-import type { AttemptRecord, CaseRecord, Level, MasteryRecord, ProfileRecord, ProgressRecord, QuizAttemptRecord, SectorKey, SkillKey } from "../../shared/types.ts";
+import type { AttemptRecord, CaseRecord, Level, LevelHistoryRecord, MasteryRecord, ProfileRecord, ProgressRecord, QuizAttemptRecord, ReviewCardRecord, SectorKey, SkillKey } from "../../shared/types.ts";
 
 const KEY = "consultant-academy-demo-v1";
 export const DEMO_USER_ID = "00000000-0000-4000-8000-00000000demo";
@@ -13,19 +13,23 @@ export interface DemoState {
   cases: CaseRecord[];
   attempts: AttemptRecord[];
   mastery: Record<string, MasteryRecord>;
-  followups: { case_id: string; turn_index: number; question: string; answer: string }[];
+  followups: { case_id: string; turn_index: number; question: string; answer: string; score_delta?: number; ai?: boolean }[];
+  review_cards: ReviewCardRecord[];
+  level_history: LevelHistoryRecord[];
 }
 
 function fresh(): DemoState {
   const now = new Date().toISOString();
   return {
-    profile: { id: DEMO_USER_ID, display_name: "متدرب تجريبي", level: "beginner", preferred_sector: null, created_at: now, updated_at: now },
+    profile: { id: DEMO_USER_ID, display_name: "متدرب تجريبي", level: "beginner", preferred_sector: null, track: null, created_at: now, updated_at: now },
     progress: {},
     quiz_attempts: [],
     cases: [],
     attempts: [],
     mastery: {},
     followups: [],
+    review_cards: [],
+    level_history: [{ level: "beginner", achieved_at: now }],
   };
 }
 

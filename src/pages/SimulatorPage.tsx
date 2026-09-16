@@ -424,6 +424,11 @@ export function SimulatorPage() {
                   <DimensionBars scores={ev.dimension_scores} />
                 </div>
               </div>
+              {ev.dialogue_assessment && (
+                <div className="small" style={{ marginTop: "0.75rem", padding: "0.6rem 0.8rem", background: "var(--gold-50, #faf6ec)", borderRadius: 8 }}>
+                  <b>حوار المحاور:</b> {ev.dialogue_assessment.score}/100 عبر {ev.dialogue_assessment.turns} {ev.dialogue_assessment.turns === 1 ? "سؤال" : "أسئلة"} — يُحتسب بوزن {Math.round(ev.dialogue_assessment.weight * 100)}% من بُعد التواصل. {ev.dialogue_assessment.comment}
+                </div>
+              )}
             </Card>
             <div className="grid grid-2">
               <Card title="نقاط القوة">

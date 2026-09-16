@@ -3,7 +3,7 @@
 // ============================================================
 import { getAdminClient, type AdminClient } from "./supabase-admin.ts";
 import { Errors } from "./respond.ts";
-import type { Level, Role, SectorKey } from "../shared/types.ts";
+import type { Level, Role, SectorKey, TrackKey } from "../shared/types.ts";
 
 export interface AuthedUser {
   id: string;
@@ -12,6 +12,7 @@ export interface AuthedUser {
   level: Level;
   display_name: string;
   preferred_sector: SectorKey | null;
+  track: TrackKey | null;
 }
 
 export function getBearerToken(req: Request): string | null {
@@ -34,7 +35,7 @@ export async function requireUser(req: Request, admin: AdminClient = getAdminCli
 
   const [{ data: roleRow }, { data: profile }] = await Promise.all([
     admin.from("roles").select("role").eq("user_id", uid).maybeSingle(),
-    admin.from("profiles").select("level, display_name, preferred_sector").eq("id", uid).maybeSingle(),
+    admin.from("profiles").select("level, display_name, preferred_sector, track").eq("id", uid).maybeSingle(),
   ]);
 
   // ضمان وجود الملف والدور (في حال أُنشئ المستخدم قبل تفعيل المشغّل)
@@ -52,6 +53,7 @@ export async function requireUser(req: Request, admin: AdminClient = getAdminCli
     level: (profile?.level as Level | undefined) ?? "beginner",
     display_name: profile?.display_name ?? "",
     preferred_sector: (profile?.preferred_sector as SectorKey | null | undefined) ?? null,
+    track: (profile?.track as TrackKey | null | undefined) ?? null,
   };
 }
 

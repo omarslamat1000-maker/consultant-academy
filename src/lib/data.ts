@@ -1,7 +1,11 @@
 // ============================================================
 // طبقة البيانات الموحدة: تنفيذ كامل (Supabase + Functions) وتنفيذ تجريبي (محلي)
 // ============================================================
-import type { EvaluateOutcome, FollowUpOutcome, GenerateOutcome, QuizOutcome, RecommendationBundle, RevealOutcome } from "../../shared/api-types.ts";
+import type { EvaluateOutcome, FollowUpOutcome, GenerateOutcome, PeerComparison, QuizOutcome, RecommendationBundle, RevealOutcome, ReviewDueOutcome, ReviewGradeOutcome } from "../../shared/api-types.ts";
+import { applyDialogue } from "../../shared/dialogue.ts";
+import { comparePeers } from "../../shared/peers.ts";
+import { gradeQuestion, stripAnswers } from "../../shared/quiz-grader.ts";
+import { isMastered, newCardState, nextReviewState } from "../../shared/review.ts";
 import { toPublicView } from "../../shared/case-view.ts";
 import { CURRICULUM, findModule } from "../../shared/curriculum/index.ts";
 import { CASE_LIBRARY, getLibraryCase } from "../../shared/cases/index.ts";
@@ -12,7 +16,7 @@ import { gradeQuiz } from "../../shared/quiz-grader.ts";
 import { coverageScore } from "../../shared/recommendation-engine.ts";
 import type { EvaluateRequest, FollowUpRequest, GenerateCaseRequest } from "../../shared/schemas.ts";
 import { buildLocalRecommendation } from "../../shared/recommendation-local.ts";
-import { LEVELS, LEVEL_ORDER, type AttemptRecord, type CaseContent, type CasePublicView, type CaseRecord, type Level, type MasteryRecord, type ModuleFull, type ModuleSummary, type ProfileRecord, type ProgressRecord, type QuizAttemptRecord, type QuizUserAnswer, type Role, type SectorKey, type SemanticSignature, type SkillKey } from "../../shared/types.ts";
+import { LEVELS, LEVEL_ORDER, type AttemptRecord, type CaseContent, type CasePublicView, type CaseRecord, type Level, type MasteryRecord, type ModuleFull, type ModuleSummary, type LevelHistoryRecord, type ProfileRecord, type ProgressRecord, type QuizAttemptRecord, type QuizQuestion, type QuizUserAnswer, type ReviewCardRecord, type Role, type SectorKey, type SemanticSignature, type SkillKey, type TrackKey } from "../../shared/types.ts";
 import { ApiClientError, apiFetch } from "./api.ts";
 import { IS_DEMO } from "./config.ts";
 import { DEMO_USER_ID, loadDemo, mutateDemo, uuid } from "./demo-store.ts";
@@ -28,7 +32,7 @@ export interface AttemptListItem extends AttemptRecord {
 export interface DataService {
   readonly mode: "demo" | "full";
   getProfile(): Promise<{ profile: ProfileRecord; role: Role }>;
-  updateProfile(p: { display_name?: string; preferred_sector?: SectorKey | null }): Promise<ProfileRecord>;
+  updateProfile(p: ProfileUpdate): Promise<ProfileRecord>;
   listModules(): Promise<{ modules: ModuleSummary[]; progress: Record<string, ProgressRecord> }>;
   getModule(id: string): Promise<{ module: ModuleFull; progress: ProgressRecord | null; quiz_history: QuizAttemptRecord[] }>;
   submitQuiz(moduleId: string, answers: Record<string, QuizUserAnswer>, appliedAnswer: string | undefined, durationSeconds: number): Promise<QuizOutcome>;
@@ -41,6 +45,19 @@ export interface DataService {
   getMastery(): Promise<MasteryRecord[]>;
   getRecommendation(): Promise<RecommendationBundle>;
   aiStatus(): Promise<{ configured: boolean }>;
+  /** بطاقات المراجعة المتباعدة المستحقة */
+  listReviewDue(): Promise<ReviewDueOutcome>;
+  gradeReview(cardId: string, answer: QuizUserAnswer): Promise<ReviewGradeOutcome>;
+  /** مقارنة مجهولة بالأقران (نسب فقط) */
+  getPeerComparison(): Promise<PeerComparison>;
+  /** سجل الترقيات (أساس الشهادات) */
+  listLevelHistory(): Promise<LevelHistoryRecord[]>;
+}
+
+export interface ProfileUpdate {
+  display_name?: string;
+  preferred_sector?: SectorKey | null;
+  track?: TrackKey | null;
 }
 
 // ============================================================
@@ -70,7 +87,7 @@ class FullDataService implements DataService {
     };
   }
 
-  async updateProfile(p: { display_name?: string; preferred_sector?: SectorKey | null }) {
+  async updateProfile(p: ProfileUpdate) {
     const sb = getSupabase();
     const uid = await this.uid();
     const { data, error } = await sb.from("profiles").update(p).eq("id", uid).select("*").single();
@@ -184,7 +201,7 @@ class FullDataService implements DataService {
       const sb = getSupabase();
       const uid = await this.uid();
       const [{ data: profile }, { data: mods }, { data: prog }, { data: quizzes }, { data: attempts }, { data: mastery }, { data: cases }] = await Promise.all([
-        sb.from("profiles").select("level, preferred_sector").eq("id", uid).maybeSingle(),
+        sb.from("profiles").select("level, preferred_sector, track").eq("id", uid).maybeSingle(),
         sb.from("modules").select("id, title, level, order_index, content").eq("is_published", true).order("order_index"),
         sb.from("learning_progress").select("module_id, best_score, attempts_count, completed, last_activity_at").eq("user_id", uid),
         sb.from("quiz_attempts").select("id, module_id, score, created_at").eq("user_id", uid).order("created_at", { ascending: false }).limit(200),
@@ -195,6 +212,7 @@ class FullDataService implements DataService {
       const bundle = buildLocalRecommendation({
         level: (profile?.level as Level) ?? "beginner",
         preferred_sector: (profile?.preferred_sector as SectorKey | null) ?? null,
+        track: (profile?.track as TrackKey | null) ?? null,
         modules: ((mods ?? []) as any[]).map((m) => ({ id: m.id, title: m.title, level: m.level, order_index: m.order_index, primary_skill: m.content?.primary_skill })),
         progress: ((prog ?? []) as any[]).map((p) => ({ ...p, best_score: Number(p.best_score) })),
         quiz_attempts: ((quizzes ?? []) as any[]).map((q) => ({ ...q, score: Number(q.score) })),
@@ -208,6 +226,22 @@ class FullDataService implements DataService {
   aiStatus() {
     return apiFetch<{ configured: boolean }>("/api/ai-provider/status");
   }
+  listReviewDue() {
+    return apiFetch<ReviewDueOutcome>("/api/review/due", { method: "POST", body: {} });
+  }
+  gradeReview(cardId: string, answer: QuizUserAnswer) {
+    return apiFetch<ReviewGradeOutcome>("/api/review/grade", { body: { card_id: cardId, answer } });
+  }
+  getPeerComparison() {
+    return apiFetch<PeerComparison>("/api/peers/compare", { method: "POST", body: {} });
+  }
+  async listLevelHistory() {
+    const sb = getSupabase();
+    const uid = await this.uid();
+    const { data, error } = await sb.from("level_history").select("level, achieved_at").eq("user_id", uid).order("achieved_at");
+    if (error) throw new Error("تعذر تحميل سجل الترقيات.");
+    return (data ?? []) as LevelHistoryRecord[];
+  }
 }
 
 // ============================================================
@@ -219,7 +253,7 @@ class DemoDataService implements DataService {
   async getProfile() {
     return { profile: loadDemo().profile, role: "learner" as Role };
   }
-  async updateProfile(p: { display_name?: string; preferred_sector?: SectorKey | null }) {
+  async updateProfile(p: ProfileUpdate) {
     const s = mutateDemo((st) => {
       Object.assign(st.profile, p, { updated_at: new Date().toISOString() });
     });
@@ -256,6 +290,7 @@ class DemoDataService implements DataService {
     const appliedScore = appliedAnswer && appliedAnswer.length >= 40 ? coverageScore(module.content.applied_case.model_answer, appliedAnswer, tokenize) : null;
     const appliedPassed = appliedScore !== null && appliedScore >= appliedMin;
     let outcome!: QuizOutcome;
+    let reviewCreated = 0;
     mutateDemo((st) => {
       const prev = st.progress[moduleId];
       const best = Math.max(prev?.best_score ?? 0, result.score);
@@ -264,11 +299,19 @@ class DemoDataService implements DataService {
       st.progress[moduleId] = { module_id: moduleId, best_score: best, attempts_count: attemptsCount, completed, last_activity_at: new Date().toISOString() };
       st.quiz_attempts.push({ id: uuid(), module_id: moduleId, score: result.score, created_at: new Date().toISOString(), applied_case_score: appliedScore });
       void durationSeconds;
+      // بطاقات المراجعة المتباعدة للأسئلة الخاطئة
+      for (const g of result.graded.filter((x) => !x.correct)) {
+        const state = newCardState();
+        const existing = st.review_cards.find((c) => c.question_id === g.question_id);
+        if (existing) Object.assign(existing, { due_at: state.due_at, interval_days: 1, streak: 0, last_result: false });
+        else st.review_cards.push({ id: uuid(), question_id: g.question_id, ...state });
+        reviewCreated++;
+      }
       const combined = appliedScore === null ? result.score : Math.round((result.score * 0.6 + appliedScore * 0.4) * 100) / 100;
       const prevM = st.mastery[module.primary_skill];
       const next = updateMastery(prevM ? { score: prevM.score, evidence_count: prevM.evidence_count } : null, combined);
       st.mastery[module.primary_skill] = { skill: module.primary_skill, score: next.score, evidence_count: next.evidence_count, updated_at: new Date().toISOString() };
-      outcome = { result, applied_case_score: appliedScore, applied_case_min: appliedMin, quiz_min: quizMin, best_score: best, attempts_count: attemptsCount, completed, passed, mastery: { skill: module.primary_skill, ...next } };
+      outcome = { result, applied_case_score: appliedScore, applied_case_min: appliedMin, quiz_min: quizMin, best_score: best, attempts_count: attemptsCount, completed, passed, mastery: { skill: module.primary_skill, ...next }, review_cards_created: reviewCreated };
     });
     return outcome;
   }
@@ -341,7 +384,8 @@ class DemoDataService implements DataService {
     const s = loadDemo();
     const row = s.cases.find((c) => c.id === req.case_id);
     if (!row) throw new Error("الحالة غير موجودة.");
-    const evaluation = localEvaluate(row.content, req.answer_text);
+    const turns = s.followups.filter((f) => f.case_id === row.id).map((f) => ({ score_delta: f.score_delta ?? 0, ai: Boolean(f.ai) }));
+    const evaluation = applyDialogue(localEvaluate(row.content, req.answer_text), turns.length ? turns : req.followup_answers.map(() => ({ score_delta: 0, ai: false })));
     const attempt: AttemptRecord = {
       id: uuid(),
       user_id: DEMO_USER_ID,
@@ -376,7 +420,7 @@ class DemoDataService implements DataService {
     const qs = row.content.interviewer_questions;
     const nextIdx = req.turn_index + 1;
     const next = qs[nextIdx] ?? null;
-    mutateDemo((st) => st.followups.push({ case_id: row.id, turn_index: req.turn_index, question: qs[req.turn_index] ?? "", answer: req.previous_answer }));
+    mutateDemo((st) => st.followups.push({ case_id: row.id, turn_index: req.turn_index, question: qs[req.turn_index] ?? "", answer: req.previous_answer, score_delta: 0, ai: false }));
     return {
       assessment: "سُجّلت إجابتك. (الوضع التجريبي: متابعة ثابتة بلا تقييم ذكي؛ التقييم المحلي يظهر عند إرسال الإجابة النهائية.)",
       score_delta: 0,
@@ -417,6 +461,7 @@ class DemoDataService implements DataService {
     const bundle = buildLocalRecommendation({
       level: s.profile.level,
       preferred_sector: s.profile.preferred_sector,
+      track: s.profile.track ?? null,
       modules: CURRICULUM.map((m) => ({ id: m.id, title: m.title, level: m.level, order_index: m.order_index, primary_skill: m.primary_skill })),
       progress: Object.values(s.progress),
       quiz_attempts: s.quiz_attempts.slice().reverse(),
@@ -430,6 +475,7 @@ class DemoDataService implements DataService {
       promotedTo = bundle.level_report.next_level;
       mutateDemo((st) => {
         st.profile.level = promotedTo as Level;
+        if (!st.level_history.some((h) => h.level === promotedTo)) st.level_history.push({ level: promotedTo as Level, achieved_at: new Date().toISOString() });
       });
     }
     return { ...bundle, promoted_to: promotedTo };
@@ -437,6 +483,62 @@ class DemoDataService implements DataService {
 
   async aiStatus() {
     return { configured: false };
+  }
+
+  private questionIndex(): Map<string, { q: QuizQuestion; module_id: string; module_title: string }> {
+    const idx = new Map<string, { q: QuizQuestion; module_id: string; module_title: string }>();
+    for (const m of CURRICULUM) for (const q of m.questions) idx.set(q.id, { q, module_id: m.id, module_title: m.title });
+    return idx;
+  }
+
+  async listReviewDue(): Promise<ReviewDueOutcome> {
+    const s = loadDemo();
+    const idx = this.questionIndex();
+    const now = Date.now();
+    const due = s.review_cards.filter((c) => new Date(c.due_at).getTime() <= now).sort((a, b) => a.due_at.localeCompare(b.due_at)).slice(0, 20);
+    const views = due
+      .map((card) => {
+        const e = idx.get(card.question_id);
+        if (!e) return null;
+        return { card, question: stripAnswers([e.q])[0], module_id: e.module_id, module_title: e.module_title };
+      })
+      .filter((v): v is NonNullable<typeof v> => v !== null);
+    return { due: views, total_cards: s.review_cards.length, due_count: s.review_cards.filter((c) => new Date(c.due_at).getTime() <= now).length, mastered_count: s.review_cards.filter(isMastered).length };
+  }
+
+  async gradeReview(cardId: string, answer: QuizUserAnswer): Promise<ReviewGradeOutcome> {
+    const idx = this.questionIndex();
+    let out!: ReviewGradeOutcome;
+    mutateDemo((st) => {
+      const card = st.review_cards.find((c) => c.id === cardId);
+      if (!card) throw new Error("بطاقة المراجعة غير موجودة.");
+      const e = idx.get(card.question_id);
+      if (!e) throw new Error("السؤال غير موجود.");
+      const graded = gradeQuestion(e.q, answer);
+      const next = nextReviewState(card, graded.correct);
+      Object.assign(card, next);
+      const updated: ReviewCardRecord = { ...card };
+      out = { graded, correct_answer: e.q.correct_answer ?? null, explanation: e.q.explanation ?? graded.explanation, card: updated };
+    });
+    return out;
+  }
+
+  async getPeerComparison(): Promise<PeerComparison> {
+    // الوضع التجريبي: مجموعة أقران افتراضية حتمية (لا بيانات حقيقية) لتوضيح الميزة فقط
+    const s = loadDemo();
+    const rows: { user_id: string; skill: string; score: number }[] = Object.values(s.mastery).map((m) => ({ user_id: DEMO_USER_ID, skill: m.skill, score: m.score }));
+    const skills = Object.keys(s.mastery);
+    for (let u = 0; u < 12; u++) {
+      for (const skill of skills) {
+        const seed = (u * 131 + skill.length * 17 + skill.charCodeAt(0)) % 97;
+        rows.push({ user_id: `peer-${u}`, skill, score: 35 + (seed % 55) });
+      }
+    }
+    return { ...comparePeers(rows, DEMO_USER_ID), computed_locally: true };
+  }
+
+  async listLevelHistory(): Promise<LevelHistoryRecord[]> {
+    return loadDemo().level_history.slice();
   }
 }
 

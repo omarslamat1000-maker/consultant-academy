@@ -212,6 +212,100 @@ describe("المسار الكامل بلا مزود ذكاء (حالة ثابت�
   });
 });
 
+describe("المراجعة المتباعدة والحوار والأقران والشهادات", () => {
+  function wrongAnswers() {
+    const m = CURRICULUM[0];
+    const answers: Record<string, unknown> = {};
+    for (const q of m.questions) answers[q.id] = { text: "إجابة خاطئة تمامًا بلا كلمات مفتاحية" };
+    return { m, answers };
+  }
+
+  it("الأخطاء في الاختبار تنشئ بطاقات مراجعة مستحقة غدًا، ولا تُعاد الإجابة الصحيحة قبل التصحيح", async () => {
+    const { m, answers } = wrongAnswers();
+    const out = await (await (await fn("quiz-submit"))(makeRequest("/api/quiz/submit", { module_id: m.id, answers }, "token-user-a-0123456789abcdef"))).json() as any;
+    expect(out.review_cards_created).toBeGreaterThan(0);
+    const cards = fake.rows("review_cards");
+    expect(cards.length).toBe(out.review_cards_created);
+    expect(cards.every((c) => c.user_id === USER_A.id && c.streak === 0 && c.interval_days === 1)).toBe(true);
+    // غير مستحقة الآن (غدًا)
+    const due = await (await (await fn("review-due"))(makeRequest("/api/review/due", {}, "token-user-a-0123456789abcdef"))).json() as any;
+    expect(due.total_cards).toBe(cards.length);
+    expect(due.due_count).toBe(0);
+    // نجعلها مستحقة ونتأكد أن السؤال يعود بلا إجابة صحيحة
+    for (const c of cards) c.due_at = new Date(Date.now() - 1000).toISOString();
+    const due2 = await (await (await fn("review-due"))(makeRequest("/api/review/due", {}, "token-user-a-0123456789abcdef"))).json() as any;
+    expect(due2.due_count).toBe(cards.length);
+    expect(due2.due[0].question.correct_answer).toBeUndefined();
+    expect(due2.due[0].module_title).toBe(m.title);
+  });
+
+  it("تصحيح المراجعة خادميًا: الصحيح يطيل الفاصل والخطأ يعيده للغد، ولا يصل لبطاقة مستخدم آخر (404)", async () => {
+    const { m, answers } = wrongAnswers();
+    await (await fn("quiz-submit"))(makeRequest("/api/quiz/submit", { module_id: m.id, answers }, "token-user-a-0123456789abcdef"));
+    const card = fake.rows("review_cards")[0];
+    const q = m.questions.find((x) => x.id === card.question_id)!;
+    const ca = q.correct_answer!;
+    const right = "keywords" in ca ? { text: ca.keywords.join(" ") + " نص إضافي لضمان الطول الكافي للإجابة" } : ca;
+    const h = await fn("review-grade");
+    const ok = await (await h(makeRequest("/api/review/grade", { card_id: card.id, answer: right }, "token-user-a-0123456789abcdef"))).json() as any;
+    expect(ok.graded.correct).toBe(true);
+    expect(ok.card.streak).toBe(1);
+    expect(ok.card.interval_days).toBe(3);
+    expect(ok.correct_answer).toBeTruthy();
+    const bad = await (await h(makeRequest("/api/review/grade", { card_id: card.id, answer: { text: "خطأ" } }, "token-user-a-0123456789abcdef"))).json() as any;
+    expect(bad.graded.correct).toBe(false);
+    expect(bad.card.streak).toBe(0);
+    expect(bad.card.interval_days).toBe(1);
+    const other = await h(makeRequest("/api/review/grade", { card_id: card.id, answer: right }, "token-user-b-0123456789abcdef"));
+    expect(other.status).toBe(404);
+  });
+
+  it("حوار المحاور يُدمج في التقييم النهائي بوزن معلن", async () => {
+    const g = await (await (await fn("cases-generate"))(makeRequest("/api/cases/generate", { level: "beginner", case_type: "interviewer_led" }, "token-user-a-0123456789abcdef"))).json() as any;
+    const fu = await (await fn("cases-follow-up"))(makeRequest("/api/cases/follow-up", { case_id: g.case.id, turn_index: 0, previous_answer: "التوصية أولًا ثم الأسباب بالأرقام", history: [] }, "token-user-a-0123456789abcdef"));
+    expect(fu.status).toBe(200);
+    const answer = "التوصية: نعالج السبب الجذري أولًا. الأسباب: أولًا وثانيًا وثالثًا مع الأرقام والحسابات. المفاضلة والمخاطر والخطوات التالية موضحة بوضوح تام للقرار.";
+    const ev = await (await (await fn("cases-evaluate"))(makeRequest("/api/cases/evaluate", { case_id: g.case.id, answer_text: answer, followup_answers: [{ question: "س", answer: "ج" }] }, "token-user-a-0123456789abcdef"))).json() as any;
+    expect(ev.evaluation.dialogue_assessment).toMatchObject({ turns: 1, weight: 0.2 });
+    expect(ev.evaluation.dialogue_assessment.score).toBe(55);
+    const g2 = await (await (await fn("cases-generate"))(makeRequest("/api/cases/generate", { level: "beginner" }, "token-user-a-0123456789abcdef"))).json() as any;
+    const ev2 = await (await (await fn("cases-evaluate"))(makeRequest("/api/cases/evaluate", { case_id: g2.case.id, answer_text: answer }, "token-user-a-0123456789abcdef"))).json() as any;
+    expect(ev2.evaluation.dialogue_assessment).toBeUndefined();
+  });
+
+  it("مقارنة الأقران تعيد نسبًا فقط وبلا معرفات، وتحتاج 3 متدربين", async () => {
+    const h = await fn("peers-compare");
+    const small = await (await h(makeRequest("/api/peers/compare", {}, "token-user-a-0123456789abcdef"))).json() as any;
+    expect(small.enough_data).toBe(false);
+    fake.seed("mastery_scores", [
+      { user_id: USER_A.id, skill: "structuring", score: 80, evidence_count: 3 },
+      { user_id: USER_B.id, skill: "structuring", score: 60, evidence_count: 3 },
+      { user_id: ADMIN.id, skill: "structuring", score: 90, evidence_count: 3 },
+    ]);
+    const res = await h(makeRequest("/api/peers/compare", {}, "token-user-a-0123456789abcdef"));
+    const text = await res.text();
+    expect(text).not.toContain(USER_B.id);
+    expect(text).not.toContain("b@test.local");
+    const body = JSON.parse(text);
+    expect(body.enough_data).toBe(true);
+    expect(body.skills.find((s: any) => s.skill === "structuring").percentile).toBe(50);
+  });
+
+  it("الترقية تُسجَّل في level_history (أساس الشهادات)", async () => {
+    const m = CURRICULUM[0];
+    // نُكمل شروط المستوى المبتدئ اصطناعيًا
+    fake.seed("learning_progress", [{ user_id: USER_A.id, module_id: m.id, completed: true, best_score: 100, attempts_count: 1 }]);
+    fake.seed("quiz_attempts", [1, 2, 3].map((i) => ({ user_id: USER_A.id, module_id: m.id, score: 90, created_at: new Date(Date.now() - i * 1000).toISOString() })));
+    fake.seed("generated_cases", [1, 2, 3].map((i) => ({ id: `00000000-0000-4000-8000-00000000c00${i}`, user_id: USER_A.id, level: "beginner", skill: "structuring", sector: "government", fingerprint: `fp${i}`, status: "active" })));
+    fake.seed("attempts", [1, 2, 3].map((i) => ({ user_id: USER_A.id, case_id: `00000000-0000-4000-8000-00000000c00${i}`, case_fingerprint: `fp${i}`, score: 85, duration_seconds: 60, created_at: new Date().toISOString(), feedback: { gaps: [] } })));
+    fake.seed("mastery_scores", ["problem_definition", "structuring", "hypotheses", "data_identification", "quantitative", "root_cause", "prioritization", "portfolio_evaluation", "risk_governance", "communication", "case_interview", "execution_planning"].map((skill) => ({ user_id: USER_A.id, skill, score: 80, evidence_count: 5, updated_at: new Date().toISOString() })));
+    const out = await (await (await fn("recommendations-next"))(makeRequest("/api/recommendations/next", {}, "token-user-a-0123456789abcdef"))).json() as any;
+    expect(out.promoted_to).toBe("intermediate");
+    const hist = fake.rows("level_history");
+    expect(hist.some((h) => h.user_id === USER_A.id && h.level === "intermediate")).toBe(true);
+  });
+});
+
 describe("إدارة مفاتيح API — لا يُعاد السر أبدًا", () => {
   it("بدون CONFIG_ENCRYPTION_KEY: الحفظ من التطبيق معطّل (503) ولا يوجد بديل غير آمن", async () => {
     delete process.env.CONFIG_ENCRYPTION_KEY;

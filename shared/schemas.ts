@@ -157,6 +157,12 @@ export const FollowUpRequestSchema = z.object({
 });
 export type FollowUpRequest = z.infer<typeof FollowUpRequestSchema>;
 
+export const ReviewGradeRequestSchema = z.object({
+  card_id: z.string().uuid(),
+  answer: z.unknown(),
+});
+export type ReviewGradeRequest = z.infer<typeof ReviewGradeRequestSchema>;
+
 export const RevealDataRequestSchema = z.object({
   case_id: z.string().uuid(),
   key: z.string().trim().min(1).max(60),

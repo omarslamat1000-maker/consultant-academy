@@ -9,6 +9,8 @@ import { fenceUserInput, renderPrompt } from "../shared/prompts/index.ts";
 import { DIMENSION_RUBRIC_TEXT, computeTotalScore, normalizeDimensionScores, performanceLevel } from "../shared/rubric.ts";
 import { CaseContentSchema, EvaluationModelOutputSchema, FollowUpModelOutputSchema, type EvaluateRequest, type FollowUpRequest, type GenerateCaseRequest } from "../shared/schemas.ts";
 import { CASE_LIBRARY, getLibraryCase } from "../shared/cases/index.ts";
+import { applyDialogue, type DialogueTurn } from "../shared/dialogue.ts";
+import { pickTrackSector } from "../shared/tracks.ts";
 import { toPublicView } from "../shared/case-view.ts";
 import type { EvaluateOutcome, FollowUpOutcome, GenerateOutcome } from "../shared/api-types.ts";
 export type { EvaluateOutcome, FollowUpOutcome, GenerateOutcome };
@@ -68,6 +70,8 @@ async function fetchRecentCases(admin: AdminClient, userId: string): Promise<{ f
 function pickSector(user: AuthedUser, requested: SectorKey | undefined, preferred: SectorKey | null, recent: { sector: string }[]): SectorKey {
   if (requested) return requested;
   if (preferred) return preferred;
+  // المسار المهني: تناوب داخل قطاعات المسار
+  if (user.track) return pickTrackSector(user.track, recent.map((r) => r.sector));
   // أقل القطاعات استخدامًا مؤخرًا
   const counts = new Map<string, number>();
   for (const r of recent) counts.set(r.sector, (counts.get(r.sector) ?? 0) + 1);
@@ -358,6 +362,10 @@ export async function evaluateAnswer(admin: AdminClient, user: AuthedUser, req: 
     };
   }
 
+  // دمج حوار المحاور (إن وُجد) في بُعد التواصل بوزن صريح قبل الحفظ
+  const dialogueTurns = await loadDialogueTurns(admin, user.id, row.id, req.followup_answers.length);
+  evaluation = applyDialogue(evaluation, dialogueTurns);
+
   const { data: inserted, error } = await admin
     .from("attempts")
     .insert({
@@ -379,9 +387,18 @@ export async function evaluateAnswer(admin: AdminClient, user: AuthedUser, req: 
   }
 
   const masteryUpdates = await applyMasteryUpdates(admin, user.id, content.skill, evaluation.total_score, evaluation.dimension_scores);
+  await audit(admin, user.id, "case.evaluate.dialogue", "generated_case", row.id, { turns: dialogueTurns.length, dialogue: evaluation.dialogue_assessment ?? null });
   await admin.from("generated_cases").update({ last_shown_at: new Date().toISOString() }).eq("id", row.id);
   await audit(admin, user.id, "case.evaluate", "attempt", inserted.id, { case_id: row.id, score: evaluation.total_score, evaluation_type: evaluation.evaluation_type });
   return { attempt_id: inserted.id, evaluation, mastery_updates: masteryUpdates };
+}
+
+/** أدوار الحوار المسجلة خادميًا لهذه الحالة (مصدر الحقيقة)، مع احتياط لعدد الإجابات المرسلة إن لم تُسجل */
+async function loadDialogueTurns(admin: AdminClient, userId: string, caseId: string, sentCount: number): Promise<DialogueTurn[]> {
+  const { data } = await admin.from("case_followups").select("turn_index, assessment").eq("user_id", userId).eq("case_id", caseId).order("turn_index");
+  const rows = (data ?? []) as { turn_index: number; assessment: { score_delta?: number; ai?: boolean } | null }[];
+  if (rows.length > 0) return rows.map((r) => ({ score_delta: Number(r.assessment?.score_delta ?? 0), ai: Boolean(r.assessment?.ai) }));
+  return Array.from({ length: Math.min(10, sentCount) }, () => ({ score_delta: 0, ai: false }));
 }
 
 export async function applyMasteryUpdates(admin: AdminClient, userId: string, caseSkill: SkillKey, total: number, dims: DimensionScores) {

@@ -17,6 +17,8 @@ export const RATE_RULES = {
   provider_write: { limit: 10, windowSeconds: 600 } satisfies RateRule,
   quiz: { limit: 30, windowSeconds: 600 } satisfies RateRule,
   recommend: { limit: 30, windowSeconds: 600 } satisfies RateRule,
+  review: { limit: 60, windowSeconds: 600 } satisfies RateRule,
+  peers: { limit: 20, windowSeconds: 600 } satisfies RateRule,
   admin: { limit: 120, windowSeconds: 600 } satisfies RateRule,
   global_ai: { limit: 300, windowSeconds: 600 } satisfies RateRule, // حد إجمالي لاستدعاءات الذكاء
 } as const;

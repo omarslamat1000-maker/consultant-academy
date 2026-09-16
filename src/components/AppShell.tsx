@@ -12,6 +12,7 @@ const LINKS = [
   { to: "/path", label: "المسار التدريبي", icon: "▤" },
   { to: "/simulator", label: "محاكاة الحالة", icon: "◈" },
   { to: "/library", label: "مكتبة الحالات", icon: "▣" },
+  { to: "/review", label: "المراجعة", icon: "↻" },
   { to: "/history", label: "سجل الممارسة", icon: "≡" },
   { to: "/mastery", label: "ملف الإتقان", icon: "◔" },
 ];

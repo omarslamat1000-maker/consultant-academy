@@ -17,6 +17,8 @@ import { AdminUsers } from "./pages/admin/AdminUsers.tsx";
 import { DashboardPage } from "./pages/DashboardPage.tsx";
 import { HistoryPage } from "./pages/HistoryPage.tsx";
 import { LibraryPage } from "./pages/LibraryPage.tsx";
+import { ReviewPage } from "./pages/ReviewPage.tsx";
+import { CertificatePage, CertificatesPage } from "./pages/CertificatesPage.tsx";
 import { LoginPage, ResetPasswordPage } from "./pages/LoginPage.tsx";
 import { MasteryPage } from "./pages/MasteryPage.tsx";
 import { ModulePage } from "./pages/ModulePage.tsx";
@@ -56,6 +58,9 @@ export function App() {
         <Route path="/modules/:id" element={<ModulePage />} />
         <Route path="/simulator" element={<SimulatorPage />} />
         <Route path="/library" element={<LibraryPage />} />
+        <Route path="/review" element={<ReviewPage />} />
+        <Route path="/certificates" element={<CertificatesPage />} />
+        <Route path="/certificate/:level" element={<CertificatePage />} />
         <Route path="/history" element={<HistoryPage />} />
         <Route path="/mastery" element={<MasteryPage />} />
         <Route path="/profile" element={<ProfilePage />} />

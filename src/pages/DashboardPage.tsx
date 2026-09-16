@@ -14,6 +14,7 @@ export function DashboardPage() {
   const [rec, setRec] = useState<RecommendationBundle | null>(null);
   const [attempts, setAttempts] = useState<AttemptListItem[]>([]);
   const [modulesDone, setModulesDone] = useState<{ done: number; total: number }>({ done: 0, total: 0 });
+  const [reviewDue, setReviewDue] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -22,6 +23,7 @@ export function DashboardPage() {
     setError(null);
     try {
       const [r, a, m] = await Promise.all([data.getRecommendation(), data.listAttempts(), data.listModules()]);
+      data.listReviewDue().then((d) => setReviewDue(d.due_count)).catch(() => setReviewDue(null));
       setRec(r);
       setAttempts(a);
       setModulesDone({ done: Object.values(m.progress).filter((p) => p.completed).length, total: m.modules.length });
@@ -69,7 +71,16 @@ export function DashboardPage() {
           ابدأ حالة جديدة
         </Link>
       </div>
-      {rec.promoted_to && <Alert tone="success">تهانينا! انتقلت إلى مستوى {LEVEL_LABELS[rec.promoted_to]} بعد تحقيق جميع الشروط.</Alert>}
+      {rec.promoted_to && (
+        <Alert tone="success">
+          تهانينا! انتقلت إلى مستوى {LEVEL_LABELS[rec.promoted_to]} بعد تحقيق جميع الشروط. <Link to="/certificates">اعرض شهادتك</Link>
+        </Alert>
+      )}
+      {reviewDue !== null && reviewDue > 0 && (
+        <Alert tone="info">
+          لديك {reviewDue} {reviewDue === 1 ? "بطاقة مراجعة مستحقة" : "بطاقات مراجعة مستحقة"} لمفاهيم أخطأت فيها سابقًا. <Link to="/review">ابدأ المراجعة (5 دقائق)</Link>
+        </Alert>
+      )}
       {rec.level_report.regression_detected && <Alert tone="warn">لاحظنا تراجعًا في آخر محاولاتك. نقترح مراجعة موجهة قبل الحالة التالية (لن يُخفَّض مستواك).</Alert>}
       {rec.computed_locally && <Alert tone="info">التوصية محسوبة من بياناتك مباشرة لأن الوظائف الخادمية غير متاحة الآن؛ الترقية بين المستويات والخطة الذكية تعملان عند اتصالها.</Alert>}
 
@@ -95,6 +106,11 @@ export function DashboardPage() {
         <Stat label="متوسط النتيجة" value={rec.stats.avg_score || "—"} hint="من 100 عبر كل الحالات" />
         <Stat label="الحالات المنجزة" value={rec.stats.cases_total} hint={`${rec.stats.cases_unique} حالة غير مكررة`} />
         <Stat label="مدة التدريب" value={`${rec.stats.training_minutes} د`} hint="إجمالي زمن الإجابات" />
+      </div>
+      <div className="btn-row" style={{ marginTop: "0.75rem" }}>
+        <Link to="/library" className="btn btn-sm btn-outline">مكتبة الحالات (50)</Link>
+        <Link to="/review" className="btn btn-sm btn-outline">بطاقات المراجعة{reviewDue ? ` (${reviewDue})` : ""}</Link>
+        <Link to="/certificates" className="btn btn-sm btn-outline">الشهادات</Link>
       </div>
 
       <div className="two-col" style={{ marginTop: "1rem" }}>

@@ -5,11 +5,12 @@
 import type { RecommendationBundle } from "./api-types.ts";
 import { evaluateLevelProgress, type LevelEvidence } from "./level-rules.ts";
 import { computeSkillBuckets, decideNext, deterministicPlan, type ModuleLite } from "./recommendation-engine.ts";
-import type { AttemptRecord, Level, MasteryRecord, ProgressRecord, QuizAttemptRecord, SectorKey, SkillKey } from "./types.ts";
+import type { AttemptRecord, Level, MasteryRecord, ProgressRecord, QuizAttemptRecord, SectorKey, SkillKey, TrackKey } from "./types.ts";
 
 export interface LocalRecommendationInput {
   level: Level;
   preferred_sector: SectorKey | null;
+  track?: TrackKey | null;
   modules: ModuleLite[];
   progress: ProgressRecord[];
   /** الأحدث أولًا */
@@ -58,6 +59,7 @@ export function buildLocalRecommendation(input: LocalRecommendationInput): Recom
     staleSkills: stale,
     weakSkills: weak,
     preferredSector: input.preferred_sector,
+    track: input.track ?? null,
     caseSectors: input.cases.map((c) => c.sector),
   });
   const plan = deterministicPlan(weak, stale, strong, report);

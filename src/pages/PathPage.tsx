@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { LEVELS, LEVEL_LABELS, LEVEL_ORDER, SKILL_LABELS, type ModuleSummary, type ProgressRecord } from "../../shared/types.ts";
 import { Badge, Card, ErrorState, Loading, ProgressBar } from "../components/ui.tsx";
+import { isPriorityModule, orderModulesForTrack } from "../../shared/tracks.ts";
 import { useAuth } from "../context/AuthContext.tsx";
 import { errorMessage } from "../lib/api.ts";
 import { data } from "../lib/data.ts";
@@ -51,7 +52,7 @@ export function PathPage() {
         </div>
       </div>
       {LEVELS.map((lvl) => {
-        const list = modules.filter((m) => m.level === lvl);
+        const list = orderModulesForTrack(modules.filter((m) => m.level === lvl), profile?.track ?? null);
         if (list.length === 0) return null;
         const locked = LEVEL_ORDER[lvl] > userLevelIdx;
         return (
@@ -73,6 +74,7 @@ export function PathPage() {
                       </h3>
                       <Badge tone={p?.completed ? "green" : p ? "gold" : "gray"}>{status}</Badge>
                       <Badge tone="blue">{SKILL_LABELS[m.primary_skill].ar}</Badge>
+                      {isPriorityModule(m, profile?.track ?? null) && <Badge tone="gold">أولوية مسارك</Badge>}
                     </div>
                     <p className="muted" style={{ margin: 0 }}>
                       {m.description}

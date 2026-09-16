@@ -21,10 +21,15 @@ export class FakeAdmin {
   }
 
   seed(table: string, rows: Row[]): void {
-    this.tables.get(table)!.push(...rows.map((r) => ({ ...r })));
+    this.rows(table).push(...rows.map((r) => ({ ...r })));
   }
   rows(table: string): Row[] {
-    return this.tables.get(table)!;
+    let t = this.tables.get(table);
+    if (!t) {
+      t = [];
+      this.tables.set(table, t);
+    }
+    return t;
   }
 
   get auth() {

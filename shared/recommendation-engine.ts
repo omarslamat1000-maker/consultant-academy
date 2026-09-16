@@ -2,7 +2,8 @@
 // محرك التوصية الحتمي — مشترك بين الخادم والوضع التجريبي
 // ============================================================
 import { suggestedCaseLevel } from "./level-rules.ts";
-import { SECTORS, SKILL_LABELS, SKILLS, type Level, type LevelProgressReport, type NextRecommendation, type SectorKey, type SkillKey, type WeeklyPlanItem } from "./types.ts";
+import { SECTORS, SKILL_LABELS, SKILLS, type Level, type LevelProgressReport, type NextRecommendation, type SectorKey, type SkillKey, type TrackKey, type WeeklyPlanItem } from "./types.ts";
+import { orderModulesForTrack, pickTrackSector } from "./tracks.ts";
 
 export interface ModuleLite {
   id: string;
@@ -22,17 +23,19 @@ export interface DecideNextInput {
   weakSkills: SkillKey[];
   preferredSector: SectorKey | null;
   caseSectors: string[];
+  /** المسار المهني: يعيد ترتيب وحدات المستوى ويوجّه اختيار القطاع */
+  track?: TrackKey | null;
 }
 
 export function decideNext(p: DecideNextInput): NextRecommendation {
-  const levelModules = p.modules.filter((m) => m.level === p.level).sort((a, b) => a.order_index - b.order_index);
+  const levelModules = orderModulesForTrack(p.modules.filter((m) => m.level === p.level), p.track);
   const firstIncomplete = levelModules.find((m) => !p.completedModuleIds.has(m.id));
 
   if (firstIncomplete) {
     return {
       kind: "module",
       title: `ادرس وحدة: ${firstIncomplete.title}`,
-      reason: "لم تكتمل بعد، وهي شرط للانتقال إلى المستوى التالي.",
+      reason: p.track && firstIncomplete.primary_skill && orderModulesForTrack([firstIncomplete], p.track).length ? "لم تكتمل بعد، وهي شرط للانتقال إلى المستوى التالي (رُتبت وفق مسارك المهني)." : "لم تكتمل بعد، وهي شرط للانتقال إلى المستوى التالي.",
       skill: firstIncomplete.primary_skill ?? "problem_definition",
       level: p.level,
       module_id: firstIncomplete.id,
@@ -50,7 +53,7 @@ export function decideNext(p: DecideNextInput): NextRecommendation {
       module_id: mod?.id,
     };
   }
-  const sector = p.preferredSector ?? leastUsedSector(p.caseSectors);
+  const sector = p.preferredSector ?? (p.track ? pickTrackSector(p.track, p.caseSectors) : leastUsedSector(p.caseSectors));
   const caseLevel = suggestedCaseLevel(p.level, p.report);
   const target = p.weakSkills[0] ?? p.staleSkills[0] ?? "communication";
   return {

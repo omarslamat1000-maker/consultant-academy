@@ -6,6 +6,7 @@ import { gradeQuiz } from "../shared/quiz-grader.ts";
 import type { QuizOutcome } from "../shared/api-types.ts";
 export type { QuizOutcome };
 import { updateMastery } from "../shared/mastery.ts";
+import { newCardState } from "../shared/review.ts";
 import { coverageScore } from "../shared/recommendation-engine.ts";
 import type { QuizSubmitRequest } from "../shared/schemas.ts";
 import type { ModuleContent, QuizQuestion, QuizUserAnswer, SkillKey } from "../shared/types.ts";
@@ -57,6 +58,19 @@ export async function submitQuiz(admin: AdminClient, user: AuthedUser, req: Quiz
     throw Errors.server();
   }
 
+  // بطاقات المراجعة المتباعدة: سؤال لكل إجابة خاطئة (تُعاد جدولة البطاقة القائمة إلى الغد)
+  const wrong = result.graded.filter((g) => !g.correct).map((g) => g.question_id);
+  let reviewCardsCreated = 0;
+  if (wrong.length > 0) {
+    const state = newCardState();
+    const { error: rcErr } = await admin.from("review_cards").upsert(
+      wrong.map((qid) => ({ user_id: user.id, question_id: qid, due_at: state.due_at, interval_days: state.interval_days, streak: state.streak, last_result: false })),
+      { onConflict: "user_id,question_id" },
+    );
+    if (rcErr) console.error("[quiz] review_cards upsert failed:", rcErr.message);
+    else reviewCardsCreated = wrong.length;
+  }
+
   let mastery: QuizOutcome["mastery"] = null;
   const skill = content.primary_skill;
   if (skill) {
@@ -68,5 +82,5 @@ export async function submitQuiz(admin: AdminClient, user: AuthedUser, req: Quiz
   }
 
   await audit(admin, user.id, "quiz.submit", "module", req.module_id, { score: result.score, applied_case_score: appliedScore, passed, completed, attempts_count: attemptsCount });
-  return { result, applied_case_score: appliedScore, applied_case_min: appliedMin, quiz_min: quizMin, best_score: best, attempts_count: attemptsCount, completed, passed, mastery };
+  return { result, applied_case_score: appliedScore, applied_case_min: appliedMin, quiz_min: quizMin, best_score: best, attempts_count: attemptsCount, completed, passed, mastery, review_cards_created: reviewCardsCreated };
 }

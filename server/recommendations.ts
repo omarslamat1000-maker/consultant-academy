@@ -65,6 +65,9 @@ export async function buildRecommendation(admin: AdminClient, user: AuthedUser):
     if (!error) {
       promotedTo = report.next_level;
       await audit(admin, user.id, "level.promote", "profile", user.id, { from: level, to: report.next_level });
+      // سجل الترقيات (أساس شهادات إتمام المستوى)
+      const { error: histErr } = await admin.from("level_history").upsert({ user_id: user.id, level: report.next_level, achieved_at: new Date().toISOString() }, { onConflict: "user_id,level" });
+      if (histErr) console.error("[recommend] level_history upsert failed:", histErr.message);
     }
   }
 
@@ -83,6 +86,7 @@ export async function buildRecommendation(admin: AdminClient, user: AuthedUser):
     staleSkills: stale,
     weakSkills: weak,
     preferredSector: user.preferred_sector as SectorKey | null,
+    track: user.track,
     caseSectors: ((cases ?? []) as any[]).map((c) => c.sector as string),
   });
 

@@ -1184,3 +1184,75 @@ input[type="radio"] {
     stroke-dashoffset: 0;
   }
 }
+
+
+/* ---------- الشهادات ---------- */
+.certificate {
+  position: relative;
+  overflow: hidden;
+  background: #fffdf7;
+  border: 3px double var(--gold-500, #b8963e);
+  border-radius: 14px;
+  padding: 2.5rem 2rem;
+  text-align: center;
+  color: var(--green-900, #0a2f24);
+  max-width: 860px;
+  margin: 0 auto;
+}
+.certificate .tree-bg {
+  position: absolute;
+  inset-inline-start: -40px;
+  bottom: -40px;
+  opacity: 0.08;
+  pointer-events: none;
+}
+.certificate .cert-eyebrow {
+  letter-spacing: 0.2em;
+  font-size: 0.8rem;
+  color: var(--gold-600, #9a7a2c);
+  margin: 0 0 0.5rem;
+}
+.certificate h2 {
+  font-size: 2rem;
+  margin: 0.25rem 0;
+}
+.certificate .cert-name {
+  font-size: 1.6rem;
+  font-weight: 700;
+  margin: 1rem 0 0.5rem;
+}
+.certificate .cert-level {
+  display: inline-block;
+  padding: 0.4rem 1.2rem;
+  border: 1px solid var(--gold-500, #b8963e);
+  border-radius: 999px;
+  margin: 0.5rem 0 1rem;
+  font-weight: 700;
+}
+.certificate .cert-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-top: 2rem;
+  font-size: 0.85rem;
+  color: var(--gray-700, #4b5563);
+}
+@media print {
+  .sidebar,
+  .mobile-nav,
+  .demo-banner,
+  .skip-link,
+  .no-print {
+    display: none !important;
+  }
+  .app-shell {
+    display: block !important;
+  }
+  .main {
+    padding: 0 !important;
+  }
+  .certificate {
+    border-color: #b8963e;
+    break-inside: avoid;
+  }
+}

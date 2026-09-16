@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { LEVEL_LABELS, SECTORS, SECTOR_LABELS, type SectorKey } from "../../shared/types.ts";
+import { LEVEL_LABELS, SECTORS, SECTOR_LABELS, TRACKS, type SectorKey, type TrackKey } from "../../shared/types.ts";
+import { TRACK_PROFILES } from "../../shared/tracks.ts";
 import { Alert, Card, Field } from "../components/ui.tsx";
 import { useAuth } from "../context/AuthContext.tsx";
 import { errorMessage } from "../lib/api.ts";
@@ -10,6 +11,7 @@ export function ProfilePage() {
   const { profile, refreshProfile, isDemo, updatePassword, user, signOut } = useAuth();
   const [name, setName] = useState(profile?.display_name ?? "");
   const [sector, setSector] = useState<SectorKey | "">(profile?.preferred_sector ?? "");
+  const [track, setTrack] = useState<TrackKey | "">(profile?.track ?? "");
   const [msg, setMsg] = useState<{ tone: "success" | "error"; text: string } | null>(null);
   const [pw, setPw] = useState("");
   const [busy, setBusy] = useState(false);
@@ -17,6 +19,7 @@ export function ProfilePage() {
   useEffect(() => {
     setName(profile?.display_name ?? "");
     setSector(profile?.preferred_sector ?? "");
+    setTrack(profile?.track ?? "");
   }, [profile]);
 
   async function save(e: FormEvent) {
@@ -24,7 +27,7 @@ export function ProfilePage() {
     setBusy(true);
     setMsg(null);
     try {
-      await data.updateProfile({ display_name: name.trim(), preferred_sector: sector || null });
+      await data.updateProfile({ display_name: name.trim(), preferred_sector: sector || null, track: track || null });
       await refreshProfile();
       setMsg({ tone: "success", text: "تم حفظ الملف الشخصي." });
     } catch (err) {
@@ -77,6 +80,21 @@ export function ProfilePage() {
                 </option>
               ))}
             </select>
+          </Field>
+          <Field label="المسار المهني" htmlFor="tr" hint="يعيد ترتيب وحدات المستوى ويوجّه اختيار قطاعات الحالات؛ لا يغيّر قواعد الانتقال ولا أوزان التقييم">
+            <select id="tr" value={track} onChange={(e) => setTrack(e.target.value as TrackKey | "")}>
+              <option value="">مسار عام (بلا تخصيص)</option>
+              {TRACKS.map((t) => (
+                <option key={t} value={t}>
+                  {TRACK_PROFILES[t].label}
+                </option>
+              ))}
+            </select>
+            {track && (
+              <p className="small muted" style={{ margin: "0.4rem 0 0" }}>
+                {TRACK_PROFILES[track].description}
+              </p>
+            )}
           </Field>
           <div className="btn-row">
             <button className="btn btn-primary" disabled={busy} type="submit">

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import type { RecommendationBundle } from "../../shared/api-types.ts";
+import type { PeerComparison, RecommendationBundle } from "../../shared/api-types.ts";
 import { collectRecurringErrors } from "../../shared/recommendation-engine.ts";
 import { LEVEL_LABELS, SKILLS, SKILL_LABELS, type MasteryRecord } from "../../shared/types.ts";
 import { LineChart } from "../components/charts.tsx";
@@ -12,6 +12,7 @@ export function MasteryPage() {
   const [mastery, setMastery] = useState<MasteryRecord[]>([]);
   const [attempts, setAttempts] = useState<AttemptListItem[]>([]);
   const [rec, setRec] = useState<RecommendationBundle | null>(null);
+  const [peers, setPeers] = useState<PeerComparison | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -23,6 +24,7 @@ export function MasteryPage() {
       setMastery(m);
       setAttempts(a);
       setRec(r);
+      data.getPeerComparison().then(setPeers).catch(() => setPeers(null));
     } catch (err) {
       setError(errorMessage(err));
     } finally {
@@ -72,6 +74,35 @@ export function MasteryPage() {
                 </div>
               );
             })}
+          </Card>
+          <Card title="مقارنة مجهولة بالأقران" actions={peers?.computed_locally ? <Badge tone="amber">مجموعة افتراضية (تجريبي)</Badge> : peers ? <Badge>{peers.cohort_size} متدربًا</Badge> : null}>
+            {!peers ? (
+              <p className="muted small">غير متاحة الآن.</p>
+            ) : !peers.enough_data ? (
+              <p className="muted small">تظهر المقارنة عند وجود 3 متدربين على الأقل لديهم درجات إتقان (بلا أسماء أو معرفات).</p>
+            ) : (
+              <>
+                {peers.overall_percentile !== null && (
+                  <p style={{ margin: "0 0 0.5rem" }}>
+                    متوسط إتقانك أعلى من <b>{peers.overall_percentile}%</b> من الأقران.
+                  </p>
+                )}
+                {peers.skills
+                  .filter((p) => p.percentile !== null)
+                  .map((p) => (
+                    <div key={p.skill} style={{ marginBottom: "0.4rem" }}>
+                      <div className="small" style={{ display: "flex", justifyContent: "space-between" }}>
+                        <span>{SKILL_LABELS[p.skill].ar}</span>
+                        <span className="muted">
+                          أنت {p.my_score} · الوسيط {p.median} · أعلى من {p.percentile}%
+                        </span>
+                      </div>
+                      <ProgressBar value={p.percentile ?? 0} label={`النسبة المئوية في ${SKILL_LABELS[p.skill].ar}`} />
+                    </div>
+                  ))}
+                {peers.skills.every((p) => p.percentile === null) && <p className="muted small">لا توجد لديك درجات إتقان بعد؛ أكمل حالة أو اختبارًا لتظهر المقارنة.</p>}
+              </>
+            )}
           </Card>
           <Card title="الاتجاه عبر الزمن (آخر 20 حالة)">
             <LineChart points={trend} label="اتجاه درجات الحالات" />
