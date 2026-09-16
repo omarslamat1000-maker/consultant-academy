@@ -12,12 +12,14 @@ const rows = [
   ["VITE_SUPABASE_URL", "الواجهة", true, "رابط مشروع Supabase"],
   ["VITE_SUPABASE_ANON_KEY", "الواجهة", true, "المفتاح القابل للنشر (anon / sb_publishable_)"],
   ["SUPABASE_URL", "الوظائف", true, "رابط المشروع نفسه"],
-  ["SUPABASE_SERVICE_ROLE_KEY", "الوظائف", true, "Supabase → Settings → API Keys → service_role (سري)"],
+  ["SUPABASE_SERVICE_ROLE_KEY", "الوظائف", false, "Supabase → Settings → API Keys → service_role (سري) — أو بديله FUNCTIONS_SERVICE_SECRET"],
+  ["FUNCTIONS_SERVICE_SECRET", "الوظائف", false, "سر القناة الخدمية (الترحيل 0007) — بديل عن service_role"],
   ["CONFIG_ENCRYPTION_KEY", "الوظائف", false, "32 بايت base64 لحفظ مفاتيح الذكاء من التطبيق"],
   ["GEMINI_API_KEY", "الوظائف", false, "بديل اختياري عن الحفظ من التطبيق"],
 ];
 
 let missingRequired = 0;
+const hasDbAccess = Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY?.trim() || process.env.FUNCTIONS_SERVICE_SECRET?.trim());
 console.log("\nجاهزية البيئة — أكاديمية المستشار\n");
 for (const [name, scope, required, hint] of rows) {
   const v = process.env[name]?.trim();
@@ -32,9 +34,13 @@ for (const [name, scope, required, hint] of rows) {
   console.log(`${status.padEnd(44)} ${name.padEnd(28)} [${scope}] ${hint}`);
 }
 console.log("");
+if (!hasDbAccess) {
+  console.log("⚠ لا يوجد SUPABASE_SERVICE_ROLE_KEY ولا FUNCTIONS_SERVICE_SECRET: تعمل الواجهة لكن مسارات /api/* تعيد خطأ.");
+  missingRequired++;
+}
 if (missingRequired) {
-  console.log(`⚠ ${missingRequired} متغير(ات) مطلوبة مفقودة. بدون SUPABASE_SERVICE_ROLE_KEY تعمل الواجهة لكن مسارات /api/* تعيد خطأ.`);
+  console.log(`⚠ ${missingRequired} متغير(ات) مطلوبة مفقودة.`);
   process.exitCode = 1;
 } else {
-  console.log("✓ جميع المتغيرات المطلوبة مضبوطة.");
+  console.log(`✓ جميع المتغيرات المطلوبة مضبوطة (اتصال الوظائف عبر ${process.env.SUPABASE_SERVICE_ROLE_KEY?.trim() ? "service_role" : "القناة الخدمية"}).`);
 }
