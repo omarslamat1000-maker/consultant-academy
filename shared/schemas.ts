@@ -53,6 +53,7 @@ export const CaseRubricEntrySchema = z.object({
 
 // محتوى الحالة الكامل كما يعيده النموذج (يُتحقق منه قبل الحفظ)
 export const CaseContentSchema = z.object({
+  library_id: z.string().max(40).optional(),
   title: z.string().trim().min(5).max(160),
   sector: SectorSchema,
   level: LevelSchema,
@@ -134,6 +135,8 @@ export const GenerateCaseRequestSchema = z.object({
   case_type: CaseTypeSchema.default("candidate_led"),
   timed: z.boolean().default(false),
   allow_repeat_case_id: z.string().uuid().optional(),
+  // بدء حالة محددة من المكتبة الداخلية (مصدر static) بدل التوليد
+  library_id: z.string().max(40).optional(),
 });
 export type GenerateCaseRequest = z.infer<typeof GenerateCaseRequestSchema>;
 

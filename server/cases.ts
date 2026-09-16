@@ -8,7 +8,7 @@ import { masteryUpdatesFromEvaluation, updateMastery } from "../shared/mastery.t
 import { fenceUserInput, renderPrompt } from "../shared/prompts/index.ts";
 import { DIMENSION_RUBRIC_TEXT, computeTotalScore, normalizeDimensionScores, performanceLevel } from "../shared/rubric.ts";
 import { CaseContentSchema, EvaluationModelOutputSchema, FollowUpModelOutputSchema, type EvaluateRequest, type FollowUpRequest, type GenerateCaseRequest } from "../shared/schemas.ts";
-import { DEMO_CASES } from "../shared/demo-cases.ts";
+import { CASE_LIBRARY, getLibraryCase } from "../shared/cases/index.ts";
 import { toPublicView } from "../shared/case-view.ts";
 import type { EvaluateOutcome, FollowUpOutcome, GenerateOutcome } from "../shared/api-types.ts";
 export type { EvaluateOutcome, FollowUpOutcome, GenerateOutcome };
@@ -107,6 +107,9 @@ export async function generateCase(admin: AdminClient, user: AuthedUser, req: Ge
   // المسؤول يختار أي مستوى (للمراجعة والاختبار)؛ المتدرب حتى مستواه + درجة واحدة
   const level = user.role === "admin" ? (req.level ?? user.level) : clampRequestedLevel(user.level, req.level);
   const recent = await fetchRecentCases(admin, user.id);
+
+  // بدء حالة محددة من المكتبة الداخلية (اختيار صريح من صفحة المكتبة)
+  if (req.library_id) return startLibraryCase(admin, user, req.library_id, req.case_type, recent);
   const sector = pickSector(user, req.sector, preferredSector, recent);
   const skill = await pickSkill(admin, user.id, req.skill);
   const cfg = await resolveAIConfig(admin);
@@ -152,9 +155,31 @@ async function insertCase(admin: AdminClient, userId: string, content: CaseConte
   return data as CaseRecord;
 }
 
+async function startLibraryCase(admin: AdminClient, user: AuthedUser, libraryId: string, caseType: GenParams["case_type"], recent: { fingerprint: string; signature: SemanticSignature }[]): Promise<GenerateOutcome> {
+  const found = getLibraryCase(libraryId);
+  if (!found) throw Errors.notFound("حالة المكتبة");
+  // المتدرب لا يبدأ حالة أعلى من مستواه بأكثر من درجة واحدة
+  if (user.role !== "admin" && LEVEL_ORDER[found.level] > Math.min(LEVELS.length - 1, LEVEL_ORDER[user.level] + 1)) {
+    throw Errors.forbidden();
+  }
+  const content: CaseContent = { ...found, case_type: caseType };
+  const sig = buildSemanticSignature(content);
+  const fp = computeFingerprint(sig);
+  const dup = checkDuplicate(sig, fp, recent);
+  const row = await insertCase(admin, user.id, content, caseType, "library-v1", "static", dup.max_similarity, "active");
+  await audit(admin, user.id, "case.library.start", "generated_case", row.id, { library_id: libraryId, level: content.level, skill: content.skill, sector: content.sector });
+  return {
+    case: toPublicView(row),
+    attempts: 1,
+    duplicates_rejected: 0,
+    ai: false,
+    message: dup.duplicate ? "بدأتَ حالة من المكتبة سبق أن تدربت عليها؛ ستُحتسب المحاولة لكن لا تُعد حالة فريدة جديدة." : "حالة من المكتبة الداخلية (مكتوبة يدويًا، غير مولدة).",
+  };
+}
+
 async function generateStaticCase(admin: AdminClient, user: AuthedUser, p: GenParams, recent: { fingerprint: string; signature: SemanticSignature }[]): Promise<GenerateOutcome> {
   const seen = new Set(recent.map((r) => r.fingerprint));
-  const candidates = DEMO_CASES.map((c) => ({ c, sig: buildSemanticSignature(c) })).map((x) => ({ ...x, fp: computeFingerprint(x.sig) })).filter((x) => !seen.has(x.fp));
+  const candidates = CASE_LIBRARY.map((c) => ({ c, sig: buildSemanticSignature(c) })).map((x) => ({ ...x, fp: computeFingerprint(x.sig) })).filter((x) => !seen.has(x.fp));
   if (candidates.length === 0) {
     throw Errors.aiNotConfigured();
   }

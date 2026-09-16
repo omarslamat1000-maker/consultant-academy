@@ -167,6 +167,32 @@ describe("المسار الكامل بلا مزود ذكاء (حالة ثابت�
     expect(again.message).toMatch(/صريح/);
   });
 
+  it("بدء حالة محددة من المكتبة الداخلية بالرمز (library_id)", async () => {
+    const h = await fn("cases-generate");
+    const res = await h(makeRequest("/api/cases/generate", { library_id: "lib-i03", case_type: "interviewer_led" }, "token-user-a-0123456789abcdef"));
+    expect(res.status).toBe(200);
+    const body = await res.json() as any;
+    expect(body.case.title).toMatch(/نقل خدمات/);
+    expect(body.case.level).toBe("intermediate");
+    expect(body.case.case_type).toBe("interviewer_led");
+    expect(body.case.source).toBe("static");
+    expect(body.ai).toBe(false);
+    // إعادة الحالة نفسها من المكتبة تُقبل لكنها لا تُعد فريدة
+    const again = await (await h(makeRequest("/api/cases/generate", { library_id: "lib-i03" }, "token-user-a-0123456789abcdef"))).json() as any;
+    expect(again.message).toMatch(/سبق/);
+  });
+
+  it("المتدرب لا يبدأ حالة مكتبة أعلى من مستواه بأكثر من درجة (403)، والرمز المجهول 404", async () => {
+    const h = await fn("cases-generate");
+    const res = await h(makeRequest("/api/cases/generate", { library_id: "lib-a02" }, "token-user-a-0123456789abcdef"));
+    expect(res.status).toBe(403);
+    const nf = await h(makeRequest("/api/cases/generate", { library_id: "lib-zz99" }, "token-user-a-0123456789abcdef"));
+    expect(nf.status).toBe(404);
+    // المسؤول يستطيع
+    const ok = await h(makeRequest("/api/cases/generate", { library_id: "lib-a02" }, "token-admin-0123456789abcdef"));
+    expect(ok.status).toBe(200);
+  });
+
   it("اختبار الوحدة: تصحيح خادمي وحفظ التقدم وإكمال الوحدة", async () => {
     const m = CURRICULUM[0];
     const answers: Record<string, unknown> = {};

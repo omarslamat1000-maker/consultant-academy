@@ -47,9 +47,19 @@ export function SimulatorPage() {
       .catch(() => setAiConfigured(false));
   }, []);
 
+  const autoStarted = useRef(false);
   useEffect(() => {
+    // حارس ضد التشغيل المزدوج في وضع React Strict (وإلا تُسجَّل الحالة مرتين)
+    if (autoStarted.current) return;
     const repeat = params.get("repeat");
-    if (repeat && phase === "setup") void start(repeat);
+    const library = params.get("library");
+    if (repeat && phase === "setup") {
+      autoStarted.current = true;
+      void start(repeat);
+    } else if (library && phase === "setup") {
+      autoStarted.current = true;
+      void start(undefined, library);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -61,7 +71,7 @@ export function SimulatorPage() {
 
   const maxLevelIdx = role === "admin" ? LEVELS.length - 1 : Math.min(LEVELS.length - 1, LEVEL_ORDER[profile?.level ?? "beginner"] + 1);
 
-  async function start(repeatId?: string) {
+  async function start(repeatId?: string, libraryId?: string) {
     setError(null);
     setPhase("generating");
     try {
@@ -72,6 +82,7 @@ export function SimulatorPage() {
         case_type: caseType,
         timed,
         allow_repeat_case_id: repeatId,
+        library_id: libraryId,
       });
       setGen(r);
       setCaseView(r.case);

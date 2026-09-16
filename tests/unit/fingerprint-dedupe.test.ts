@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { DEMO_CASES } from "../../shared/demo-cases.ts";
+import { CASE_LIBRARY, getLibraryCase } from "../../shared/cases/index.ts";
+import { LEVELS, SECTORS } from "../../shared/types.ts";
 import { buildSemanticSignature, checkDuplicate, computeFingerprint, extractNumbers, normalizeArabic, similarity, SIMILARITY_REJECT_THRESHOLD, tokenize } from "../../shared/fingerprint.ts";
 import type { CaseContent } from "../../shared/types.ts";
 
@@ -66,5 +68,17 @@ describe("البصمة ومنع التكرار", () => {
     const filler = Array.from({ length: 100 }, (_, i) => ({ fingerprint: `x${i}`, signature: { ...sig, sector: "general_business" as const, problem_type: "other" as const, decision_type: "plan" as const, key_numbers: [i], objective_tokens: [], title_tokens: [] } }));
     const r = checkDuplicate(sig, fp, [...filler, { fingerprint: fp, signature: sig }]);
     expect(r.duplicate).toBe(false);
+  });
+
+  it("مكتبة الحالات الداخلية: 50 حالة على الأقل برموز فريدة وتغطية كل المستويات والقطاعات", () => {
+    expect(CASE_LIBRARY.length).toBeGreaterThanOrEqual(50);
+    const ids = CASE_LIBRARY.map((c) => c.library_id ?? "");
+    expect(ids.every((id) => /^lib-[bixa]\d{2}$/.test(id))).toBe(true);
+    expect(new Set(ids).size).toBe(ids.length);
+    for (const l of LEVELS) expect(CASE_LIBRARY.filter((c) => c.level === l).length).toBeGreaterThanOrEqual(9);
+    for (const s of SECTORS) expect(CASE_LIBRARY.some((c) => c.sector === s), s).toBe(true);
+    expect(getLibraryCase("lib-b01")?.level).toBe("beginner");
+    expect(getLibraryCase("lib-zz99")).toBeUndefined();
+    expect(DEMO_CASES).toBe(CASE_LIBRARY);
   });
 });

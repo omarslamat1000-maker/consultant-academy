@@ -337,6 +337,8 @@ export interface CaseRubricEntry {
 }
 
 export interface CaseContent {
+  /** معرّف ثابت لحالات المكتبة الداخلية (اختياري للحالات المولدة) */
+  library_id?: string;
   title: string;
   sector: SectorKey;
   level: Level;
@@ -451,6 +453,23 @@ export interface EvaluationResult {
   next_case_recommendation: { skill: SkillKey; level: Level; sector: SectorKey; reason: string };
   evaluation_type: "ai" | "local";
   prompt_version: string;
+  /** تقييم حوار المحاور (Interviewer-Led) ووزنه في بُعد التواصل */
+  dialogue_assessment?: { turns: number; score: number; weight: number; comment: string };
+}
+
+export interface ReviewCardRecord {
+  id: string;
+  question_id: string;
+  due_at: string;
+  interval_days: number;
+  streak: number;
+  reviews: number;
+  last_result: boolean | null;
+}
+
+export interface LevelHistoryRecord {
+  level: Level;
+  achieved_at: string;
 }
 
 export interface AttemptRecord {
@@ -475,11 +494,20 @@ export interface MasteryRecord {
   updated_at: string;
 }
 
+export const TRACKS = ["pmo_manager", "performance_analyst", "transformation_consultant"] as const;
+export type TrackKey = (typeof TRACKS)[number];
+export const TRACK_LABELS: Record<TrackKey, string> = {
+  pmo_manager: "مدير مكتب إدارة المشاريع (PMO)",
+  performance_analyst: "محلل أداء ومؤشرات",
+  transformation_consultant: "مستشار تحول مؤسسي",
+};
+
 export interface ProfileRecord {
   id: string;
   display_name: string;
   level: Level;
   preferred_sector: SectorKey | null;
+  track?: TrackKey | null;
   created_at: string;
   updated_at: string;
 }

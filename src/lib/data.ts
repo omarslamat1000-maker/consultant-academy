@@ -4,7 +4,7 @@
 import type { EvaluateOutcome, FollowUpOutcome, GenerateOutcome, QuizOutcome, RecommendationBundle, RevealOutcome } from "../../shared/api-types.ts";
 import { toPublicView } from "../../shared/case-view.ts";
 import { CURRICULUM, findModule } from "../../shared/curriculum/index.ts";
-import { DEMO_CASES } from "../../shared/demo-cases.ts";
+import { CASE_LIBRARY, getLibraryCase } from "../../shared/cases/index.ts";
 import { buildSemanticSignature, checkDuplicate, computeFingerprint, tokenize } from "../../shared/fingerprint.ts";
 import { localEvaluate } from "../../shared/local-evaluator.ts";
 import { masteryUpdatesFromEvaluation, updateMastery } from "../../shared/mastery.ts";
@@ -12,7 +12,7 @@ import { gradeQuiz } from "../../shared/quiz-grader.ts";
 import { coverageScore } from "../../shared/recommendation-engine.ts";
 import type { EvaluateRequest, FollowUpRequest, GenerateCaseRequest } from "../../shared/schemas.ts";
 import { buildLocalRecommendation } from "../../shared/recommendation-local.ts";
-import { LEVELS, LEVEL_ORDER, type AttemptRecord, type CaseContent, type CasePublicView, type CaseRecord, type Level, type MasteryRecord, type ModuleFull, type ModuleSummary, type ProfileRecord, type ProgressRecord, type QuizAttemptRecord, type QuizUserAnswer, type Role, type SectorKey, type SkillKey } from "../../shared/types.ts";
+import { LEVELS, LEVEL_ORDER, type AttemptRecord, type CaseContent, type CasePublicView, type CaseRecord, type Level, type MasteryRecord, type ModuleFull, type ModuleSummary, type ProfileRecord, type ProgressRecord, type QuizAttemptRecord, type QuizUserAnswer, type Role, type SectorKey, type SemanticSignature, type SkillKey } from "../../shared/types.ts";
 import { ApiClientError, apiFetch } from "./api.ts";
 import { IS_DEMO } from "./config.ts";
 import { DEMO_USER_ID, loadDemo, mutateDemo, uuid } from "./demo-store.ts";
@@ -284,13 +284,24 @@ class DemoDataService implements DataService {
     const maxIdx = Math.min(LEVELS.length - 1, LEVEL_ORDER[userLevel] + 1);
     const level: Level = req.level && LEVEL_ORDER[req.level] <= maxIdx ? req.level : userLevel;
     const seen = new Set(s.cases.filter((c) => c.status === "active").map((c) => c.fingerprint));
-    const candidates = DEMO_CASES.map((c) => ({ c, sig: buildSemanticSignature(c) }))
-      .map((x) => ({ ...x, fp: computeFingerprint(x.sig) }))
-      .filter((x) => !seen.has(x.fp));
-    if (candidates.length === 0) throw new Error("استُنفدت الحالات الثابتة في الوضع التجريبي. اربط Supabase وGemini للحصول على حالات مولدة جديدة، أو أعد حالة سابقة من السجل.");
-    const score = (c: CaseContent) => (c.level === level ? 2 : 0) + (req.skill && c.skill === req.skill ? 1 : 0) + (req.sector && c.sector === req.sector ? 1 : 0);
-    candidates.sort((a, b) => score(b.c) - score(a.c));
-    const chosen = candidates[0];
+    let chosen: { c: CaseContent; sig: SemanticSignature; fp: string };
+    let libraryMessage: string | null = null;
+    if (req.library_id) {
+      const found = getLibraryCase(req.library_id);
+      if (!found) throw new Error("حالة المكتبة غير موجودة.");
+      if (LEVEL_ORDER[found.level] > maxIdx) throw new Error("هذه الحالة أعلى من مستواك الحالي بأكثر من درجة واحدة.");
+      const sig = buildSemanticSignature(found);
+      chosen = { c: found, sig, fp: computeFingerprint(sig) };
+      libraryMessage = seen.has(chosen.fp) ? "بدأتَ حالة من المكتبة سبق أن تدربت عليها؛ ستُحتسب المحاولة لكن لا تُعد حالة فريدة جديدة." : "حالة من المكتبة الداخلية (مكتوبة يدويًا، غير مولدة).";
+    } else {
+      const candidates = CASE_LIBRARY.map((c) => ({ c, sig: buildSemanticSignature(c) }))
+        .map((x) => ({ ...x, fp: computeFingerprint(x.sig) }))
+        .filter((x) => !seen.has(x.fp));
+      if (candidates.length === 0) throw new Error("استُنفدت حالات المكتبة الداخلية في الوضع التجريبي. اربط Supabase وGemini للحصول على حالات مولدة جديدة، أو أعد حالة سابقة من السجل.");
+      const score = (c: CaseContent) => (c.level === level ? 2 : 0) + (req.skill && c.skill === req.skill ? 1 : 0) + (req.sector && c.sector === req.sector ? 1 : 0);
+      candidates.sort((a, b) => score(b.c) - score(a.c));
+      chosen = candidates[0];
+    }
     const caseType = req.case_type ?? "candidate_led";
     const content: CaseContent = { ...chosen.c, case_type: caseType };
     const recent = s.cases.slice().reverse().map((c) => ({ fingerprint: c.fingerprint, signature: c.semantic_signature }));
@@ -306,7 +317,7 @@ class DemoDataService implements DataService {
       level: content.level,
       case_type: caseType,
       content,
-      prompt_version: "static-v1",
+      prompt_version: req.library_id ? "library-v1" : "static-v1",
       similarity_score: dup.max_similarity,
       status: "active",
       review_status: "approved",
@@ -316,7 +327,7 @@ class DemoDataService implements DataService {
       created_at: new Date().toISOString(),
     };
     mutateDemo((st) => st.cases.push(row));
-    return { case: toPublicView(row), attempts: 1, duplicates_rejected: 0, ai: false, message: "الوضع التجريبي: حالة ثابتة من المكتبة المضمَّنة (وليست مولدة بالذكاء الاصطناعي)." };
+    return { case: toPublicView(row), attempts: 1, duplicates_rejected: 0, ai: false, message: libraryMessage ?? "الوضع التجريبي: حالة من المكتبة الداخلية (مكتوبة يدويًا، وليست مولدة بالذكاء الاصطناعي)." };
   }
 
   async revealData(caseId: string, key: string): Promise<RevealOutcome> {
