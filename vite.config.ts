@@ -4,7 +4,11 @@ import react from "@vitejs/plugin-react";
 // خادم API التطويري (tools/dev-api.ts) يحاكي Netlify Functions على المنفذ 8788
 const apiPort = Number(process.env.DEV_API_PORT ?? 8788);
 
+// مسار الأساس عند النشر تحت مسار فرعي (GitHub Pages): VITE_BASE_PATH=/consultant-academy/
+const base = process.env.VITE_BASE_PATH?.trim() || "/";
+
 export default defineConfig({
+  base,
   plugins: [react()],
   server: {
     port: 8220,
